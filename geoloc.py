@@ -1,84 +1,80 @@
 import streamlit as st
+import asyncio
+import websockets
+import json
 import folium
 from streamlit_folium import folium_static
-import json
-import os
 from streamlit_js_eval import streamlit_js_eval
 
 # Titre de l'application
-st.title("Suivi en temps réel de plusieurs utilisateurs")
+st.title("Suivi des utilisateurs en temps réel")
 
-# Fichier pour stocker les positions (vous pouvez remplacer cela par une base de données)
-positions_file = "user_positions.json"
-
-# Fonction pour charger les positions à partir d'un fichier
-def load_positions():
-    if os.path.exists(positions_file):
-        with open(positions_file, "r") as f:
-            return json.load(f)
-    return {}
-
-# Fonction pour sauvegarder les positions dans un fichier
-def save_positions(positions):
-    with open(positions_file, "w") as f:
-        json.dump(positions, f)
-
-# Charger les positions actuelles
-positions = load_positions()
-
-# Exécuter du JavaScript pour obtenir la géolocalisation de l'utilisateur
-location_data = streamlit_js_eval(
-    js_expressions="""
-    new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                resolve({
-                    latitude: pos.coords.latitude,
-                    longitude: pos.coords.longitude
-                });
-            },
-            (err) => reject({
-                code: err.code,
-                message: err.message
+# Fonction pour se connecter au serveur WebSocket et envoyer/recevoir des positions
+async def websocket_client():
+    uri = "ws://localhost:6789"  # Adresse du serveur WebSocket
+    async with websockets.connect(uri) as websocket:
+        # Exécuter du JavaScript pour obtenir la géolocalisation de l'utilisateur
+        location_data = streamlit_js_eval(
+            js_expressions="""
+            new Promise((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        resolve({
+                            latitude: pos.coords.latitude,
+                            longitude: pos.coords.longitude
+                        });
+                    },
+                    (err) => reject({
+                        code: err.code,
+                        message: err.message
+                    })
+                );
             })
-        );
-    })
-    """,
-    key="geo"
-)
+            """,
+            key="geo"
+        )
+        
+        if isinstance(location_data, dict) and "latitude" in location_data and "longitude" in location_data:
+            user_latitude = location_data["latitude"]
+            user_longitude = location_data["longitude"]
 
-# Vérifier si les données de localisation ont été récupérées
-if isinstance(location_data, dict) and "latitude" in location_data and "longitude" in location_data:
-    user_latitude = location_data["latitude"]
-    user_longitude = location_data["longitude"]
+            # Générer un identifiant utilisateur unique
+            user_id = st.experimental_get_query_params().get("user_id", ["default_user"])[0]
 
-    # Générer un identifiant utilisateur unique (simple approche locale)
-    user_id = st.experimental_get_query_params().get("user_id", ["default_user"])[0]
-    
-    # Sauvegarder la position actuelle de l'utilisateur
-    positions[user_id] = {"latitude": user_latitude, "longitude": user_longitude}
-    save_positions(positions)
+            # Envoyer la position de l'utilisateur au serveur WebSocket
+            position_message = json.dumps({
+                'user_id': user_id,
+                'latitude': user_latitude,
+                'longitude': user_longitude
+            })
+            await websocket.send(position_message)
 
-    # Créer une carte centrée sur les positions moyennes des utilisateurs
-    avg_lat = sum([pos["latitude"] for pos in positions.values()]) / len(positions)
-    avg_lon = sum([pos["longitude"] for pos in positions.values()]) / len(positions)
-    
-    m = folium.Map(location=[avg_lat, avg_lon], zoom_start=12)
+            # Recevoir la position des autres utilisateurs
+            positions_data = await websocket.recv()
+            return json.loads(positions_data)
 
-    # Ajouter un marqueur pour chaque utilisateur
-    for user, pos in positions.items():
-        folium.Marker([pos["latitude"], pos["longitude"]], tooltip=f"Utilisateur: {user}").add_to(m)
+        else:
+            st.warning("En attente de la localisation...")
+            return {}
 
-    # Afficher la carte
-    folium_static(m)
+# Affichage de la carte avec les positions des utilisateurs
+async def display_map():
+    positions = await websocket_client()
 
-elif isinstance(location_data, dict) and "message" in location_data:
-    # Gérer les erreurs de géolocalisation
-    st.error(f"Erreur de géolocalisation : {location_data['message']}")
-else:
-    st.warning("En attente de la localisation...")
+    if positions:
+        # Calculer la position centrale de la carte (par exemple, la moyenne des positions)
+        avg_lat = sum([pos["latitude"] for pos in positions.values()]) / len(positions)
+        avg_lon = sum([pos["longitude"] for pos in positions.values()]) / len(positions)
 
-# Bouton pour réinitialiser les positions (utile pour le développement)
-if st.button("Réinitialiser les positions"):
-    save_positions({})
-    st.experimental_rerun()
+        # Créer une carte centrée sur la position moyenne
+        m = folium.Map(location=[avg_lat, avg_lon], zoom_start=12)
+
+        # Ajouter des marqueurs pour chaque utilisateur
+        for user, pos in positions.items():
+            folium.Marker([pos["latitude"], pos["longitude"]], tooltip=f"Utilisateur: {user}").add_to(m)
+
+        # Afficher la carte
+        folium_static(m)
+
+# Lancer l'affichage de la carte
+asyncio.run(display_map())
