@@ -6,21 +6,16 @@ import os
 from streamlit_js_eval import streamlit_js_eval
 
 # Titre de l'application
-st.title("Suivi en temps réel de plusieurs utilisateurs avec meilleure précision")
+st.title("Suivi en temps réel avec précision ajustée")
 
 # Fichier pour stocker les positions (vous pouvez remplacer cela par une base de données)
 positions_file = "user_positions.json"
 
 # Fonction pour charger les positions à partir d'un fichier
 def load_positions():
-    # Vérifier si le fichier existe et qu'il n'est pas vide
-    if os.path.exists(positions_file) and os.path.getsize(positions_file) > 0:
+    if os.path.exists(positions_file):
         with open(positions_file, "r") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                # Si le fichier est corrompu ou illisible, on retourne un dictionnaire vide
-                return {}
+            return json.load(f)
     return {}
 
 # Fonction pour sauvegarder les positions dans un fichier
