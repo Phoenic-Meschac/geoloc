@@ -6,7 +6,7 @@ import os
 from streamlit_js_eval import streamlit_js_eval
 
 # Titre de l'application
-st.title("Suivi en temps réel de plusieurs utilisateurs")
+st.title("Suivi en temps réel de plusieurs utilisateurs avec meilleure précision")
 
 # Fichier pour stocker les positions (vous pouvez remplacer cela par une base de données)
 positions_file = "user_positions.json"
@@ -26,21 +26,28 @@ def save_positions(positions):
 # Charger les positions actuelles
 positions = load_positions()
 
-# Exécuter du JavaScript pour obtenir la géolocalisation de l'utilisateur
+# Exécuter du JavaScript pour obtenir la géolocalisation de l'utilisateur avec watchPosition
 location_data = streamlit_js_eval(
     js_expressions="""
     new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(
+        const options = {
+            enableHighAccuracy: true,  // Permet d'augmenter la précision
+            timeout: 5000,             // Temps maximum avant de récupérer une nouvelle position
+            maximumAge: 0              // Ne pas utiliser de position mise en cache
+        };
+        navigator.geolocation.watchPosition(
             (pos) => {
                 resolve({
                     latitude: pos.coords.latitude,
-                    longitude: pos.coords.longitude
+                    longitude: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy
                 });
             },
             (err) => reject({
                 code: err.code,
                 message: err.message
-            })
+            }),
+            options
         );
     })
     """,
@@ -51,10 +58,14 @@ location_data = streamlit_js_eval(
 if isinstance(location_data, dict) and "latitude" in location_data and "longitude" in location_data:
     user_latitude = location_data["latitude"]
     user_longitude = location_data["longitude"]
+    accuracy = location_data["accuracy"]
+
+    # Afficher la précision de la géolocalisation
+    st.write(f"Précision de la position : {accuracy} mètres")
 
     # Générer un identifiant utilisateur unique (simple approche locale)
     user_id = st.experimental_get_query_params().get("user_id", ["default_user"])[0]
-    
+
     # Sauvegarder la position actuelle de l'utilisateur
     positions[user_id] = {"latitude": user_latitude, "longitude": user_longitude}
     save_positions(positions)
