@@ -6,7 +6,7 @@ import os
 from streamlit_js_eval import streamlit_js_eval
 
 # Titre de l'application
-st.title("Suivi en temps réel de plusieurs utilisateurs avec meilleure précision")
+st.title("Suivi en temps réel avec précision ajustée")
 
 # Fichier pour stocker les positions (vous pouvez remplacer cela par une base de données)
 positions_file = "user_positions.json"
@@ -60,29 +60,32 @@ if isinstance(location_data, dict) and "latitude" in location_data and "longitud
     user_longitude = location_data["longitude"]
     accuracy = location_data["accuracy"]
 
-    # Afficher la précision de la géolocalisation
-    st.write(f"Précision de la position : {accuracy} mètres")
+    # Filtrer en fonction de la précision (par exemple, on accepte uniquement si la précision est < 50 mètres)
+    if accuracy <= 50:
+        st.write(f"Précision de la position : {accuracy} mètres (acceptée)")
+        
+        # Générer un identifiant utilisateur unique (simple approche locale)
+        user_id = st.experimental_get_query_params().get("user_id", ["default_user"])[0]
 
-    # Générer un identifiant utilisateur unique (simple approche locale)
-    user_id = st.experimental_get_query_params().get("user_id", ["default_user"])[0]
+        # Sauvegarder la position actuelle de l'utilisateur
+        positions[user_id] = {"latitude": user_latitude, "longitude": user_longitude}
+        save_positions(positions)
 
-    # Sauvegarder la position actuelle de l'utilisateur
-    positions[user_id] = {"latitude": user_latitude, "longitude": user_longitude}
-    save_positions(positions)
+        # Créer une carte centrée sur les positions moyennes des utilisateurs
+        avg_lat = sum([pos["latitude"] for pos in positions.values()]) / len(positions)
+        avg_lon = sum([pos["longitude"] for pos in positions.values()]) / len(positions)
+        
+        m = folium.Map(location=[avg_lat, avg_lon], zoom_start=12)
 
-    # Créer une carte centrée sur les positions moyennes des utilisateurs
-    avg_lat = sum([pos["latitude"] for pos in positions.values()]) / len(positions)
-    avg_lon = sum([pos["longitude"] for pos in positions.values()]) / len(positions)
-    
-    m = folium.Map(location=[avg_lat, avg_lon], zoom_start=12)
+        # Ajouter un marqueur pour chaque utilisateur
+        for user, pos in positions.items():
+            folium.Marker([pos["latitude"], pos["longitude"]], tooltip=f"Utilisateur: {user}").add_to(m)
 
-    # Ajouter un marqueur pour chaque utilisateur
-    for user, pos in positions.items():
-        folium.Marker([pos["latitude"], pos["longitude"]], tooltip=f"Utilisateur: {user}").add_to(m)
-
-    # Afficher la carte
-    folium_static(m)
-
+        # Afficher la carte
+        folium_static(m)
+    else:
+        st.warning(f"Précision de la position : {accuracy} mètres (trop faible)")
+        
 elif isinstance(location_data, dict) and "message" in location_data:
     # Gérer les erreurs de géolocalisation
     st.error(f"Erreur de géolocalisation : {location_data['message']}")
